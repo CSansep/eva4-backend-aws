@@ -1,0 +1,25 @@
+[Unit]
+Description=Gunicorn WSGI daemon for EVA4 Django REST Backend
+After=network.target
+
+[Service]
+User=ubuntu
+Group=www-data
+WorkingDirectory=/home/ubuntu/apps/backend
+EnvironmentFile=/home/ubuntu/apps/backend/.env
+ExecStart=/home/ubuntu/apps/backend/venv/bin/gunicorn \
+    --access-logfile /home/ubuntu/apps/backend/logs/gunicorn-access.log \
+    --error-logfile /home/ubuntu/apps/backend/logs/gunicorn-error.log \
+    --workers 3 \
+    --bind unix:/home/ubuntu/apps/backend/backend.sock \
+    --timeout 60 \
+    --keep-alive 5 \
+    backend_project.wsgi:application
+
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

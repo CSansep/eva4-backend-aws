@@ -1,0 +1,21 @@
+# Core Framework & REST API
+Django>=5.0,<6.0
+djangorestframework>=3.14.0
+djangorestframework-simplejwt>=5.3.0
+django-cors-headers>=4.3.0
+
+# Database Driver (Amazon RDS PostgreSQL)
+psycopg2-binary>=2.9.9
+
+# Environment Configuration & Secrets Management
+python-dotenv>=1.0.0
+
+# Production WSGI Server
+gunicorn>=21.2.0
+
+# Cloud Storage (Amazon S3 Integration)
+boto3>=1.34.0
+django-storages>=1.14.2
+
+# API Documentation (OpenAPI 3.0 / Swagger UI)
+drf-spectacular>=0.27.0
