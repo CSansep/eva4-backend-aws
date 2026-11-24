@@ -1,0 +1,188 @@
+﻿<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BuildCorp | Gestión de Obras y Proyectos</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <!-- VISTA DE ACCESO (LOGIN / REGISTRO) -->
+  <section id="auth-view" class="auth-wrapper">
+    <div class="auth-card">
+      <div class="brand-header">
+        <span class="brand-badge">CONSTRUCTORA</span>
+        <h1>BuildCorp</h1>
+        <p>Plataforma de Control de Obras, Tareas y Auditoría</p>
+      </div>
+
+      <div class="tabs">
+        <button id="tab-login" class="tab-btn active" type="button">Iniciar Sesión</button>
+        <button id="tab-register" class="tab-btn" type="button">Registrar Usuario</button>
+      </div>
+
+      <div id="auth-alert" class="alert hidden"></div>
+
+      <!-- FORMULARIO LOGIN -->
+      <form id="login-form" class="form-stack">
+        <label>Correo Electrónico
+          <input type="email" id="login-email" placeholder="ingeniero@buildcorp.cl" required />
+        </label>
+        <label>Contraseña
+          <input type="password" id="login-password" placeholder="••••••••" required />
+        </label>
+        <button type="submit" class="btn btn-primary">Ingresar al Sistema</button>
+      </form>
+
+      <!-- FORMULARIO REGISTRO -->
+      <form id="register-form" class="form-stack hidden">
+        <label>Nombre de Usuario
+          <input type="text" id="reg-username" placeholder="carlos_obra" required />
+        </label>
+        <label>Correo Electrónico
+          <input type="email" id="reg-email" placeholder="carlos@buildcorp.cl" required />
+        </label>
+        <label>Contraseña (mínimo 8 caracteres)
+          <input type="password" id="reg-password" minlength="8" placeholder="••••••••" required />
+        </label>
+        <button type="submit" class="btn btn-primary">Crear Cuenta BuildCorp</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- VISTA PRINCIPAL DASHBOARD -->
+  <div id="app-view" class="app-layout hidden">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <span class="brand-badge">BUILDCORP</span>
+        <h2>Control de Obras</h2>
+      </div>
+      <nav class="sidebar-nav">
+        <button class="nav-item active" data-section="dashboard">Resumen General</button>
+        <button class="nav-item" data-section="workspaces">Sedes / Workspaces</button>
+        <button class="nav-item" data-section="projects">Proyectos de Obra</button>
+        <button class="nav-item" data-section="tasks">Tareas y Planos</button>
+        <button class="nav-item" data-section="audit">Bitácora Auditoría</button>
+      </nav>
+      <div class="sidebar-footer">
+        <div id="user-info" class="user-pill">Cargando perfil...</div>
+        <button id="logout-btn" class="btn btn-outline btn-sm">Cerrar Sesión</button>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <h2 id="section-title">Resumen General</h2>
+        <span id="api-status" class="status-pill">API AWS Conectada</span>
+      </header>
+
+      <div id="global-alert" class="alert hidden"></div>
+
+      <!-- SECCIÓN 1: RESUMEN -->
+      <section id="sec-dashboard" class="content-section">
+        <div class="kpi-grid">
+          <div class="kpi-card"><span>Sedes / Áreas</span><strong id="kpi-workspaces">0</strong></div>
+          <div class="kpi-card"><span>Proyectos Activos</span><strong id="kpi-projects">0</strong></div>
+          <div class="kpi-card"><span>Tareas Pendientes</span><strong id="kpi-pending">0</strong></div>
+          <div class="kpi-card"><span>Tareas Completadas</span><strong id="kpi-completed">0</strong></div>
+        </div>
+        <div class="card">
+          <h3>Últimas Tareas de Construcción</h3>
+          <div id="recent-tasks-list" class="list-stack"></div>
+        </div>
+      </section>
+
+      <!-- SECCIÓN 2: WORKSPACES -->
+      <section id="sec-workspaces" class="content-section hidden">
+        <div class="card">
+          <h3>Nueva Sede o Área Operativa</h3>
+          <form id="workspace-form" class="grid-form">
+            <input type="text" id="ws-name" placeholder="Nombre (ej. Zona Norte - Minería)" required />
+            <input type="text" id="ws-slug" placeholder="Identificador slug (ej. zona-norte)" required />
+            <input type="text" id="ws-desc" placeholder="Descripción del área operativa" />
+            <button type="submit" class="btn btn-primary">Crear Área</button>
+          </form>
+        </div>
+        <div class="card">
+          <h3>Áreas Registradas</h3>
+          <div id="workspaces-list" class="cards-grid"></div>
+        </div>
+      </section>
+
+      <!-- SECCIÓN 3: PROYECTOS -->
+      <section id="sec-projects" class="content-section hidden">
+        <div class="card">
+          <h3>Nuevo Proyecto de Construcción</h3>
+          <form id="project-form" class="grid-form">
+            <input type="text" id="proj-name" placeholder="Nombre de la obra (ej. Edificio Mirador)" required />
+            <select id="proj-workspace">
+              <option value="">-- Sin área asignada --</option>
+            </select>
+            <input type="text" id="proj-desc" placeholder="Ubicación y alcance de la obra" />
+            <button type="submit" class="btn btn-primary">Registrar Obra</button>
+          </form>
+        </div>
+        <div class="card">
+          <h3>Obras en Ejecución</h3>
+          <div id="projects-list" class="cards-grid"></div>
+        </div>
+      </section>
+
+      <!-- SECCIÓN 4: TAREAS Y PLANOS S3 -->
+      <section id="sec-tasks" class="content-section hidden">
+        <div class="card">
+          <h3>Asignar Tarea de Obra</h3>
+          <form id="task-form" class="grid-form">
+            <input type="text" id="task-title" placeholder="Título de la tarea (ej. Hormigonado Losa Piso 3)" required />
+            <select id="task-project" required>
+              <option value="">-- Seleccionar Proyecto --</option>
+            </select>
+            <select id="task-priority">
+              <option value="LOW">Prioridad: Baja</option>
+              <option value="MEDIUM" selected>Prioridad: Media</option>
+              <option value="HIGH">Prioridad: Alta</option>
+            </select>
+            <select id="task-status">
+              <option value="PENDING" selected>Estado: Pendiente</option>
+              <option value="IN_PROGRESS">Estado: En Progreso</option>
+              <option value="COMPLETED">Estado: Completada</option>
+            </select>
+            <input type="datetime-local" id="task-due" />
+            <input type="file" id="task-file" title="Adjuntar plano o evidencia (S3)" />
+            <input type="text" id="task-desc" placeholder="Especificaciones técnicas..." class="span-2" />
+            <button type="submit" class="btn btn-primary">Guardar Tarea</button>
+          </form>
+        </div>
+        <div class="card">
+          <h3>Listado de Tareas de Obra</h3>
+          <div id="tasks-list" class="list-stack"></div>
+        </div>
+      </section>
+
+      <!-- SECCIÓN 5: BITÁCORA AUDITORÍA -->
+      <section id="sec-audit" class="content-section hidden">
+        <div class="card">
+          <h3>Registro de Auditoría y Seguridad</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Acción</th>
+                  <th>Entidad</th>
+                  <th>Usuario / IP</th>
+                </tr>
+              </thead>
+              <tbody id="audit-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
