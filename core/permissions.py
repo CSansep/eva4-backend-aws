@@ -70,9 +70,15 @@ class IsOwnerOrAdmin(permissions.BasePermission):
         if hasattr(obj, 'task') and hasattr(obj.task, 'project'):
             return obj.task.project.owner == request.user
 
-        # Task ownership check via project parent
+        # Task ownership or field execution check
         if hasattr(obj, 'project') and hasattr(obj.project, 'owner'):
-            return obj.project.owner == request.user
+            if obj.project.owner == request.user or getattr(obj, 'assigned_to', None) == request.user:
+                return True
+            # MEMBER en terreno: único PATCH permitido es avance de estado o evidencia S3.
+            # Cualquier otro campo, PUT o DELETE termina en 403 Forbidden.
+            if request.method == 'PATCH' and set(request.data.keys()).issubset({'status', 'attachment'}):
+                return True
+            return False
 
         # Models without direct ownership (e.g. Tag) cannot be modified by non-admins
         return False

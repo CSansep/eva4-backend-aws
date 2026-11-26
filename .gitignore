@@ -47,6 +47,12 @@ db.sqlite3-journal
 .env
 .env.local
 .env.production
+*.pem
+*.key
+
+# Local editor/server backups (never commit these)
+*.bak
+*.ba
 
 # Static & Media local mounts
 logs/

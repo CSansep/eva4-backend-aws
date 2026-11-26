@@ -51,9 +51,10 @@ class UserResponseSerializer(serializers.ModelSerializer):
             'email',
             'username',
             'role',
+            'is_superuser',
             'created_at',
         ]
-        read_only_fields = ['id', 'created_at']
+        read_only_fields = ['id', 'role', 'is_superuser', 'created_at']
 
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
@@ -153,8 +154,8 @@ class WorkspaceSerializer(serializers.ModelSerializer):
         return clean_name
 
     def validate(self, attrs):
-        """Auto-generate slug if not explicitly provided."""
-        if not attrs.get('slug'):
+        """Auto-generate slug on CREATE only; PATCH must preserve the existing slug."""
+        if self.instance is None and not attrs.get('slug'):
             name = attrs.get('name', '')
             base_slug = slugify(name)
             slug = base_slug

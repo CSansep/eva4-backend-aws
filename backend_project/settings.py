@@ -164,6 +164,7 @@ if USE_S3:
     AWS_S3_REGION_NAME = os.environ.get('AWS_S3_REGION_NAME', 'us-east-1')
     AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY_ID', None)
     AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY', None)
+    AWS_SESSION_TOKEN = os.environ.get('AWS_SESSION_TOKEN', None)
     
     # Custom domain or default S3 URL endpoint
     custom_domain = os.environ.get('AWS_S3_CUSTOM_DOMAIN', '')
