@@ -1,5 +1,5 @@
 """
-URL routing configuration for the core application (9 Relational Entities).
+URL routing configuration for the core application (12 Relational Entities).
 
 Registers ViewSets with DefaultRouter under /api/v1/ and exposes authentication,
 health check, and OpenAPI documentation endpoints.
@@ -19,6 +19,9 @@ from core.views import (
     TagViewSet,
     TaskCommentViewSet,
     TaskViewSet,
+    ToolRequestViewSet,
+    ToolReturnViewSet,
+    ToolViewSet,
     UserProfileView,
     WorkspaceMemberViewSet,
     WorkspaceViewSet,
@@ -37,6 +40,11 @@ router.register(r'tags', TagViewSet, basename='tag')
 router.register(r'tasks', TaskViewSet, basename='task')
 router.register(r'comments', TaskCommentViewSet, basename='comment')
 router.register(r'subtasks', SubtaskViewSet, basename='subtask')
+
+# Tool inventory, field requests and numbered returns
+router.register(r'tools', ToolViewSet, basename='tool')
+router.register(r'tool-requests', ToolRequestViewSet, basename='tool-request')
+router.register(r'tool-returns', ToolReturnViewSet, basename='tool-return')
 
 # Security Audit Logs (Read-only)
 router.register(r'audit-logs', AuditLogViewSet, basename='audit-log')

@@ -5,9 +5,23 @@ Implements IsOwnerOrAdmin to enforce secure multi-tenant object-level access acr
 - Authenticated users can list, retrieve, and create resources.
 - Only the resource owner (or ADMIN) can modify (PUT, PATCH) or delete (DELETE).
 - Immutable resources like AuditLog prevent modification or deletion.
+- Tool / ToolRequest / ToolReturn use dedicated strict ADMIN/MEMBER policies.
 """
 
 from rest_framework import permissions
+
+
+def is_admin_user(user) -> bool:
+    """Single source of truth for administrative role resolution."""
+    return bool(
+        user
+        and user.is_authenticated
+        and (
+            getattr(user, 'role', None) == 'ADMIN'
+            or getattr(user, 'is_staff', False)
+            or getattr(user, 'is_superuser', False)
+        )
+    )
 
 
 class IsOwnerOrAdmin(permissions.BasePermission):
@@ -82,3 +96,67 @@ class IsOwnerOrAdmin(permissions.BasePermission):
 
         # Models without direct ownership (e.g. Tag) cannot be modified by non-admins
         return False
+
+
+class ToolPermission(permissions.BasePermission):
+    """
+    Tool catalog is readable by any authenticated user, but only ADMIN may
+    create, update or delete tools.
+    """
+
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        return is_admin_user(request.user)
+
+    def has_object_permission(self, request, view, obj):
+        return self.has_permission(request, view)
+
+
+class ToolRequestPermission(permissions.BasePermission):
+    """
+    MEMBER may list their own/field requests and create new ones, and may only
+    cancel their own PENDIENTE requests. ADMIN has full control.
+    """
+
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        if request.method in ('POST', 'DELETE'):
+            # Object-level check decides whether this DELETE belongs to the user.
+            return True
+        return is_admin_user(request.user)
+
+    def has_object_permission(self, request, view, obj):
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        if is_admin_user(request.user):
+            return True
+        return (
+            request.method == 'DELETE'
+            and obj.requested_by_id == request.user.id
+            and obj.status == 'PENDIENTE'
+        )
+
+
+class ToolReturnPermission(permissions.BasePermission):
+    """
+    Both roles can create and read return receipts. Only ADMIN may verify
+    (PATCH to RECEPCIONADA) or delete them.
+    """
+
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        if request.method in permissions.SAFE_METHODS or request.method == 'POST':
+            return True
+        return is_admin_user(request.user)
+
+    def has_object_permission(self, request, view, obj):
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        return is_admin_user(request.user)

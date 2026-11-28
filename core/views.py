@@ -8,15 +8,19 @@ Provides:
 - Tag CRUD
 - Task CRUD (with query filtering and automatic AuditLog tracking)
 - TaskComment & Subtask CRUD
+- Tool catalog, ToolRequest & ToolReturn CRUD with atomic stock movements
 - AuditLog ReadOnly endpoint (scoped to ADMIN or own logs)
 - Health check (Public, verifies DB connectivity for AWS / API Gateway)
 """
 
 from django.contrib.auth import get_user_model
-from django.db import connection
+from django.db import connection, transaction
+from django.db.models import Q
+from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse
 from rest_framework import generics, status, viewsets
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -30,11 +34,22 @@ from core.models import (
     Tag,
     Task,
     TaskComment,
+    Tool,
+    ToolRequest,
+    ToolRequestStatusChoices,
+    ToolReturn,
+    ToolReturnStatusChoices,
     Workspace,
     WorkspaceMember,
     WorkspaceMemberRoleChoices,
 )
-from core.permissions import IsOwnerOrAdmin
+from core.permissions import (
+    IsOwnerOrAdmin,
+    ToolPermission,
+    ToolRequestPermission,
+    ToolReturnPermission,
+    is_admin_user,
+)
 from core.serializers import (
     AuditLogSerializer,
     ProjectSerializer,
@@ -42,6 +57,9 @@ from core.serializers import (
     TagSerializer,
     TaskCommentSerializer,
     TaskSerializer,
+    ToolRequestSerializer,
+    ToolReturnSerializer,
+    ToolSerializer,
     UserRegistrationSerializer,
     UserResponseSerializer,
     WorkspaceMemberSerializer,
@@ -469,3 +487,289 @@ class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
             queryset = queryset.filter(entity_id=entity_id_param.strip())
 
         return queryset
+
+
+# ==============================================================================
+# TOOL INVENTORY / REQUESTS / RETURNS
+# ==============================================================================
+class ToolViewSet(viewsets.ModelViewSet):
+    """
+    CRUD for the tool catalog. GET is available to every authenticated user;
+    mutations are ADMIN-only via ToolPermission.
+    """
+    permission_classes = [IsAuthenticated, ToolPermission]
+    serializer_class = ToolSerializer
+    queryset = Tool.objects.all()
+
+    def perform_create(self, serializer):
+        tool = serializer.save()
+        record_audit_log(
+            user=self.request.user,
+            action=AuditActionChoices.CREATE,
+            entity_name='Tool',
+            entity_id=tool.id,
+            details={'name': tool.name, 'stock': tool.stock},
+            ip_address=get_client_ip(self.request)
+        )
+
+    def perform_update(self, serializer):
+        tool = serializer.save()
+        record_audit_log(
+            user=self.request.user,
+            action=AuditActionChoices.UPDATE,
+            entity_name='Tool',
+            entity_id=tool.id,
+            details={'name': tool.name, 'stock': tool.stock},
+            ip_address=get_client_ip(self.request)
+        )
+
+    def perform_destroy(self, instance):
+        entity_id = instance.id
+        details = {'name': instance.name, 'stock': instance.stock}
+        try:
+            instance.delete()
+        except ProtectedError:
+            raise ValidationError(
+                "No se puede eliminar la herramienta porque tiene pedidos o devoluciones asociados."
+            )
+        record_audit_log(
+            user=self.request.user,
+            action=AuditActionChoices.DELETE,
+            entity_name='Tool',
+            entity_id=entity_id,
+            details=details,
+            ip_address=get_client_ip(self.request)
+        )
+
+
+class ToolRequestViewSet(viewsets.ModelViewSet):
+    """
+    Tool orders. MEMBER sees own / assigned-field requests and can cancel only
+    PENDIENTE ones. ADMIN sees all, changes status and deletes.
+    """
+    permission_classes = [IsAuthenticated, ToolRequestPermission]
+    serializer_class = ToolRequestSerializer
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name='status', description='Filter by tool request status', required=False, type=str),
+            OpenApiParameter(name='tool', description='Filter by Tool UUID', required=False, type=str),
+        ]
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+
+    def get_queryset(self):
+        queryset = ToolRequest.objects.select_related(
+            'tool', 'task', 'task__project', 'requested_by'
+        ).all()
+
+        if not is_admin_user(self.request.user):
+            queryset = queryset.filter(
+                Q(requested_by=self.request.user)
+                | Q(task__assigned_to=self.request.user)
+                | Q(task__project__owner=self.request.user)
+            ).distinct()
+
+        status_param = self.request.query_params.get('status')
+        tool_param = self.request.query_params.get('tool')
+        if status_param:
+            queryset = queryset.filter(status__iexact=status_param.strip())
+        if tool_param:
+            queryset = queryset.filter(tool_id=tool_param.strip())
+        return queryset
+
+    def perform_create(self, serializer):
+        with transaction.atomic():
+            tool_request = serializer.save(requested_by=self.request.user)
+            record_audit_log(
+                user=self.request.user,
+                action=AuditActionChoices.CREATE,
+                entity_name='ToolRequest',
+                entity_id=tool_request.id,
+                details={
+                    'tool': tool_request.tool.name,
+                    'quantity': tool_request.quantity,
+                    'status': tool_request.status,
+                },
+                ip_address=get_client_ip(self.request)
+            )
+
+    def perform_update(self, serializer):
+        tool_request = serializer.instance
+        old_status = tool_request.status
+
+        with transaction.atomic():
+            tool_request = serializer.save()
+            new_status = tool_request.status
+
+            if (
+                old_status == ToolRequestStatusChoices.PENDIENTE
+                and new_status in (ToolRequestStatusChoices.APROBADA, ToolRequestStatusChoices.ENTREGADA)
+            ):
+                tool = Tool.objects.select_for_update().get(pk=tool_request.tool_id)
+                if tool.stock < tool_request.quantity:
+                    raise ValidationError({
+                        'quantity': (
+                            f"Stock insuficiente al aprobar: solicita {tool_request.quantity}, "
+                            f"disponible {tool.stock}."
+                        )
+                    })
+                tool.stock -= tool_request.quantity
+                tool.save(update_fields=['stock', 'updated_at'])
+
+            if (
+                old_status == ToolRequestStatusChoices.APROBADA
+                and new_status == ToolRequestStatusChoices.RECHAZADA
+            ):
+                # An approved order had already consumed stock; rejecting it
+                # must give that stock back exactly once.
+                tool = Tool.objects.select_for_update().get(pk=tool_request.tool_id)
+                tool.stock += tool_request.quantity
+                tool.save(update_fields=['stock', 'updated_at'])
+
+            if new_status != old_status:
+                record_audit_log(
+                    user=self.request.user,
+                    action=AuditActionChoices.UPDATE,
+                    entity_name='ToolRequest',
+                    entity_id=tool_request.id,
+                    details={
+                        'tool': tool_request.tool.name,
+                        'from_status': old_status,
+                        'to_status': new_status,
+                        'quantity': tool_request.quantity,
+                    },
+                    ip_address=get_client_ip(self.request)
+                )
+
+    def perform_destroy(self, instance):
+        entity_id = instance.id
+        details = {'tool': instance.tool.name, 'quantity': instance.quantity, 'status': instance.status}
+        tool_id = instance.tool_id
+
+        with transaction.atomic():
+            if instance.status in (ToolRequestStatusChoices.APROBADA, ToolRequestStatusChoices.ENTREGADA):
+                tool = Tool.objects.select_for_update().get(pk=tool_id)
+                tool.stock += instance.quantity
+                tool.save(update_fields=['stock', 'updated_at'])
+                details['stock_restored'] = instance.quantity
+
+            try:
+                instance.delete()
+            except ProtectedError:
+                raise ValidationError(
+                    "No se puede cancelar el pedido porque ya tiene devoluciones registradas."
+                )
+
+            record_audit_log(
+                user=self.request.user,
+                action=AuditActionChoices.DELETE,
+                entity_name='ToolRequest',
+                entity_id=entity_id,
+                details=details,
+                ip_address=get_client_ip(self.request)
+            )
+
+
+class ToolReturnViewSet(viewsets.ModelViewSet):
+    """
+    Numbered return receipts. Both roles can register and read them; only ADMIN
+    may verify a receipt, which atomically replenishes the tool stock.
+    """
+    permission_classes = [IsAuthenticated, ToolReturnPermission]
+    serializer_class = ToolReturnSerializer
+
+    def get_queryset(self):
+        queryset = ToolReturn.objects.select_related(
+            'tool_request',
+            'tool_request__tool',
+            'tool_request__task',
+            'tool_request__task__project',
+            'tool_request__requested_by',
+            'returned_by',
+        ).all()
+
+        if not is_admin_user(self.request.user):
+            queryset = queryset.filter(
+                Q(returned_by=self.request.user)
+                | Q(tool_request__requested_by=self.request.user)
+            ).distinct()
+        return queryset
+
+    def perform_create(self, serializer):
+        with transaction.atomic():
+            tool_return = serializer.save(returned_by=self.request.user)
+            record_audit_log(
+                user=self.request.user,
+                action=AuditActionChoices.CREATE,
+                entity_name='ToolReturn',
+                entity_id=tool_return.id,
+                details={
+                    'return_number': tool_return.return_number,
+                    'quantity_returned': tool_return.quantity_returned,
+                    'condition': tool_return.condition,
+                },
+                ip_address=get_client_ip(self.request)
+            )
+
+    def perform_update(self, serializer):
+        tool_return = serializer.instance
+        old_status = tool_return.status
+
+        with transaction.atomic():
+            tool_return = serializer.save()
+            new_status = tool_return.status
+
+            if (
+                old_status != ToolReturnStatusChoices.RECEPCIONADA
+                and new_status == ToolReturnStatusChoices.RECEPCIONADA
+            ):
+                tool = Tool.objects.select_for_update().get(pk=tool_return.tool_request.tool_id)
+                tool.stock += tool_return.quantity_returned
+                tool.save(update_fields=['stock', 'updated_at'])
+
+                record_audit_log(
+                    user=self.request.user,
+                    action=AuditActionChoices.UPDATE,
+                    entity_name='ToolReturn',
+                    entity_id=tool_return.id,
+                    details={
+                        'return_number': tool_return.return_number,
+                        'status': new_status,
+                        'quantity_restocked': tool_return.quantity_returned,
+                        'tool': tool_return.tool_request.tool.name,
+                        'condition': tool_return.condition,
+                        'stock_after': tool.stock,
+                    },
+                    ip_address=get_client_ip(self.request)
+                )
+
+    def perform_destroy(self, instance):
+        entity_id = instance.id
+        details = {
+            'return_number': instance.return_number,
+            'quantity_returned': instance.quantity_returned,
+            'status': instance.status,
+        }
+
+        with transaction.atomic():
+            if instance.status == ToolReturnStatusChoices.RECEPCIONADA:
+                tool = Tool.objects.select_for_update().get(pk=instance.tool_request.tool_id)
+                if tool.stock < instance.quantity_returned:
+                    raise ValidationError(
+                        "No se puede eliminar: el stock ya fue consumido y no se puede revertir."
+                    )
+                tool.stock -= instance.quantity_returned
+                tool.save(update_fields=['stock', 'updated_at'])
+                details['stock_reverted'] = instance.quantity_returned
+
+            instance.delete()
+            record_audit_log(
+                user=self.request.user,
+                action=AuditActionChoices.DELETE,
+                entity_name='ToolReturn',
+                entity_id=entity_id,
+                details=details,
+                ip_address=get_client_ip(self.request)
+            )

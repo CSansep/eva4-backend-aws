@@ -1,5 +1,5 @@
 """
-Django admin configuration for all 9 core entities.
+Django admin configuration for all 12 core entities.
 """
 
 from django.contrib import admin
@@ -11,6 +11,9 @@ from core.models import (
     Tag,
     Task,
     TaskComment,
+    Tool,
+    ToolRequest,
+    ToolReturn,
     User,
     Workspace,
     WorkspaceMember,
@@ -110,3 +113,30 @@ class AuditLogAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+@admin.register(Tool)
+class ToolAdmin(admin.ModelAdmin):
+    """Admin configuration for the tool catalog."""
+    list_display = ('name', 'stock', 'updated_at')
+    list_filter = ('stock',)
+    search_fields = ('name', 'description')
+    ordering = ('name',)
+
+
+@admin.register(ToolRequest)
+class ToolRequestAdmin(admin.ModelAdmin):
+    """Admin configuration for field tool orders."""
+    list_display = ('tool', 'task', 'requested_by', 'quantity', 'priority', 'status', 'created_at')
+    list_filter = ('status', 'priority')
+    search_fields = ('tool__name', 'task__title', 'requested_by__email')
+    ordering = ('-created_at',)
+
+
+@admin.register(ToolReturn)
+class ToolReturnAdmin(admin.ModelAdmin):
+    """Admin configuration for numbered warehouse returns."""
+    list_display = ('return_number', 'tool_request', 'quantity_returned', 'condition', 'status', 'created_at')
+    list_filter = ('status', 'condition')
+    search_fields = ('tool_request__tool__name', 'returned_by__email')
+    ordering = ('-return_number',)
