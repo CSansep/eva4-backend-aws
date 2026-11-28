@@ -9,18 +9,22 @@ Compliant with OWASP Top 10, SonarQube SAST, and OWASP ZAP DAST audits.
 import os
 from datetime import timedelta
 from pathlib import Path
+
 from dotenv import load_dotenv
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
+# ------------------------------------------------------------------------------
+# 1. RUTAS BASE Y VARIABLES DE ENTORNO (.env)
+# ------------------------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Load environment variables from .env file if present
 load_dotenv(BASE_DIR / '.env')
 
 # ------------------------------------------------------------------------------
-# 1. CORE SECURITY SETTINGS
+# 2. SEGURIDAD Y HOSTS PERMITIDOS (SECRET_KEY, DEBUG, ALLOWED_HOSTS)
 # ------------------------------------------------------------------------------
-# In production, SECRET_KEY must be stored securely in the environment.
+# Nota: CSRF_TRUSTED_ORIGINS no está definido. La API usa JWT Bearer y CORS
+# explícito; no se añade un valor que modificaría el comportamiento actual.
 SECRET_KEY = os.environ.get(
     'SECRET_KEY',
     'django-insecure-eva4-backend-production-dev-key-must-be-replaced-in-env'
@@ -34,7 +38,7 @@ allowed_hosts_env = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,0.0.0.0
 ALLOWED_HOSTS = [host.strip() for host in allowed_hosts_env.split(',') if host.strip()]
 
 # ------------------------------------------------------------------------------
-# 2. APPLICATION DEFINITION
+# 3. APLICACIONES INSTALADAS (DJANGO, TERCEROS Y LOCALES)
 # ------------------------------------------------------------------------------
 INSTALLED_APPS = [
     # Django core apps
@@ -56,6 +60,11 @@ INSTALLED_APPS = [
     'core.apps.CoreConfig',
 ]
 
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# ------------------------------------------------------------------------------
+# 4. MIDDLEWARE Y URLS (MIDDLEWARE, ROOT_URLCONF, WSGI_APPLICATION)
+# ------------------------------------------------------------------------------
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     # CORS middleware must be positioned as high as possible, especially before CommonMiddleware
@@ -69,7 +78,12 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = 'backend_project.urls'
+WSGI_APPLICATION = 'backend_project.wsgi.application'
+ASGI_APPLICATION = 'backend_project.asgi.application'
 
+# ------------------------------------------------------------------------------
+# 5. TEMPLATES
+# ------------------------------------------------------------------------------
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
@@ -86,11 +100,8 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'backend_project.wsgi.application'
-ASGI_APPLICATION = 'backend_project.asgi.application'
-
 # ------------------------------------------------------------------------------
-# 3. DATABASE CONFIGURATION (Hybrid: Amazon RDS PostgreSQL / SQLite Local)
+# 6. BASES DE DATOS (POSTGRESQL RDS / SQLITE LOCAL)
 # ------------------------------------------------------------------------------
 DB_ENGINE = os.environ.get('DB_ENGINE', '').strip()
 
@@ -118,7 +129,7 @@ else:
     }
 
 # ------------------------------------------------------------------------------
-# 4. CUSTOM USER MODEL & AUTHENTICATION
+# 7. USUARIO, VALIDACIÓN DE CONTRASEÑAS E INTERNACIONALIZACIÓN
 # ------------------------------------------------------------------------------
 AUTH_USER_MODEL = 'core.User'
 
@@ -146,16 +157,13 @@ PASSWORD_HASHERS = [
     'django.contrib.auth.hashers.BCryptSHA256PasswordHasher',
 ]
 
-# ------------------------------------------------------------------------------
-# 5. INTERNATIONALIZATION & LOCALIZATION
-# ------------------------------------------------------------------------------
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
 
 # ------------------------------------------------------------------------------
-# 6. STATIC AND MEDIA STORAGE (Amazon S3 / Local Fallback)
+# 8. ARCHIVOS ESTÁTICOS Y ALMACENAMIENTO EN NUBE (S3 / LOCAL)
 # ------------------------------------------------------------------------------
 USE_S3 = os.environ.get('USE_S3', 'False').lower() in ('true', '1', 't')
 
@@ -165,7 +173,7 @@ if USE_S3:
     AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY_ID', None)
     AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY', None)
     AWS_SESSION_TOKEN = os.environ.get('AWS_SESSION_TOKEN', None)
-    
+
     # Custom domain or default S3 URL endpoint
     custom_domain = os.environ.get('AWS_S3_CUSTOM_DOMAIN', '')
     if not custom_domain and AWS_STORAGE_BUCKET_NAME:
@@ -208,10 +216,8 @@ else:
         },
     }
 
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-
 # ------------------------------------------------------------------------------
-# 7. DJANGO REST FRAMEWORK CONFIGURATION
+# 9. DJANGO REST FRAMEWORK, JWT, CORS Y OPENAPI
 # ------------------------------------------------------------------------------
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
@@ -226,9 +232,6 @@ REST_FRAMEWORK = {
     'DATETIME_FORMAT': '%Y-%m-%dT%H:%M:%SZ',
 }
 
-# ------------------------------------------------------------------------------
-# 8. SIMPLE JWT CONFIGURATION
-# ------------------------------------------------------------------------------
 access_lifetime = int(os.environ.get('JWT_ACCESS_TOKEN_LIFETIME_MINUTES', '60'))
 refresh_lifetime = int(os.environ.get('JWT_REFRESH_TOKEN_LIFETIME_DAYS', '1'))
 
@@ -249,9 +252,6 @@ SIMPLE_JWT = {
     'TOKEN_TYPE_CLAIM': 'token_type',
 }
 
-# ------------------------------------------------------------------------------
-# 9. CORS CONFIGURATION (Frontend EC2 Integration)
-# ------------------------------------------------------------------------------
 cors_origins_raw = os.environ.get('CORS_ALLOWED_ORIGINS', '')
 if cors_origins_raw.strip():
     CORS_ALLOWED_ORIGINS = [orig.strip() for orig in cors_origins_raw.split(',') if orig.strip()]
@@ -279,9 +279,6 @@ CORS_ALLOW_HEADERS = [
     'x-requested-with',
 ]
 
-# ------------------------------------------------------------------------------
-# 10. DRF SPECTACULAR (OpenAPI 3.0 / Swagger UI)
-# ------------------------------------------------------------------------------
 SPECTACULAR_SETTINGS = {
     'TITLE': 'EVA4 Task & Project Management API',
     'DESCRIPTION': (
@@ -299,7 +296,7 @@ SPECTACULAR_SETTINGS = {
 }
 
 # ------------------------------------------------------------------------------
-# 11. SECURITY HEADERS (OWASP ZAP DAST & SonarQube SAST Compliance)
+# 10. HEADERS DE SEGURIDAD EN PRODUCCIÓN (PROXY SSL, HSTS Y COOKIES)
 # ------------------------------------------------------------------------------
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = 'DENY'

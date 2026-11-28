@@ -10,7 +10,7 @@ Provides:
 - TaskComment & Subtask CRUD
 - Tool catalog, ToolRequest & ToolReturn CRUD with atomic stock movements
 - AuditLog ReadOnly endpoint (scoped to ADMIN or own logs)
-- Health check (Public, verifies DB connectivity for AWS / API Gateway)
+- Health check (Public, verifies DB connectivity for monitoring)
 """
 
 from django.contrib.auth import get_user_model
@@ -69,9 +69,9 @@ from core.serializers import (
 User = get_user_model()
 
 
-# ==============================================================================
-# AUTHENTICATION & HEALTH
-# ==============================================================================
+# ------------------------------------------------------------------------------
+# 1. AUTENTICACIÓN Y HEALTH CHECK
+# ------------------------------------------------------------------------------
 class RegisterView(generics.CreateAPIView):
     """
     Public user registration endpoint.
@@ -121,8 +121,8 @@ class UserProfileView(generics.RetrieveAPIView):
 
 class HealthCheckView(APIView):
     """
-    Lightweight health check endpoint for AWS Application Load Balancer,
-    Amazon API Gateway, and monitoring systems.
+    Lightweight health check endpoint for monitoring systems and
+    deployment verification.
     """
     permission_classes = [AllowAny]
 
@@ -155,9 +155,13 @@ class HealthCheckView(APIView):
         return Response(response_data, status=http_code)
 
 
-# ==============================================================================
-# WORKSPACE & MEMBERS VIEWSETS
-# ==============================================================================
+# ------------------------------------------------------------------------------
+# 2. USUARIOS Y SEDES
+# ------------------------------------------------------------------------------
+
+# ------------------------------------------------------------------------------
+# 2.1 WORKSPACE & MEMBERS VIEWSETS
+# ------------------------------------------------------------------------------
 class WorkspaceViewSet(viewsets.ModelViewSet):
     """
     CRUD ViewSet for Workspace / Organization entities.
@@ -207,9 +211,13 @@ class WorkspaceMemberViewSet(viewsets.ModelViewSet):
         return queryset
 
 
-# ==============================================================================
-# PROJECT VIEWSET (WITH AUTOMATIC AUDITING)
-# ==============================================================================
+# ------------------------------------------------------------------------------
+# 3. PROYECTOS Y TAREAS
+# ------------------------------------------------------------------------------
+
+# ------------------------------------------------------------------------------
+# 3.1 PROJECT VIEWSET (WITH AUTOMATIC AUDITING)
+# ------------------------------------------------------------------------------
 class ProjectViewSet(viewsets.ModelViewSet):
     """
     CRUD ViewSet for Project entities.
@@ -256,9 +264,9 @@ class ProjectViewSet(viewsets.ModelViewSet):
         instance.delete()
 
 
-# ==============================================================================
-# TAG VIEWSET
-# ==============================================================================
+# ------------------------------------------------------------------------------
+# 3.2 TAG VIEWSET
+# ------------------------------------------------------------------------------
 class TagViewSet(viewsets.ModelViewSet):
     """
     CRUD ViewSet for Tag classification entities.
@@ -268,9 +276,9 @@ class TagViewSet(viewsets.ModelViewSet):
     queryset = Tag.objects.all()
 
 
-# ==============================================================================
-# TASK VIEWSET (WITH AUTOMATIC AUDITING)
-# ==============================================================================
+# ------------------------------------------------------------------------------
+# 3.3 TASK VIEWSET (WITH AUTOMATIC AUDITING)
+# ------------------------------------------------------------------------------
 class TaskViewSet(viewsets.ModelViewSet):
     """
     CRUD ViewSet for Task entities.
@@ -365,9 +373,9 @@ class TaskViewSet(viewsets.ModelViewSet):
         instance.delete()
 
 
-# ==============================================================================
-# TASK COMMENT & SUBTASK VIEWSETS
-# ==============================================================================
+# ------------------------------------------------------------------------------
+# 3.4 TASK COMMENT & SUBTASK VIEWSETS
+# ------------------------------------------------------------------------------
 class TaskCommentViewSet(viewsets.ModelViewSet):
     """
     CRUD ViewSet for Task Comments.
@@ -430,9 +438,9 @@ class SubtaskViewSet(viewsets.ModelViewSet):
         return queryset
 
 
-# ==============================================================================
-# AUDIT LOG VIEWSET (READ-ONLY)
-# ==============================================================================
+# ------------------------------------------------------------------------------
+# 3.5 AUDIT LOG VIEWSET (READ-ONLY)
+# ------------------------------------------------------------------------------
 class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
     """
     Read-only ViewSet for security Audit Logs.
@@ -489,9 +497,9 @@ class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
         return queryset
 
 
-# ==============================================================================
-# TOOL INVENTORY / REQUESTS / RETURNS
-# ==============================================================================
+# ------------------------------------------------------------------------------
+# 4. INVENTARIO, PEDIDOS Y DEVOLUCIONES
+# ------------------------------------------------------------------------------
 class ToolViewSet(viewsets.ModelViewSet):
     """
     CRUD for the tool catalog. GET is available to every authenticated user;
