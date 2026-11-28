@@ -11,11 +11,12 @@ Provides:
 - Tool catalog, ToolRequest & ToolReturn CRUD with atomic stock movements
 - AuditLog ReadOnly endpoint (scoped to ADMIN or own logs)
 - Health check (Public, verifies DB connectivity for monitoring)
+- ADMIN dashboard and CSV-ready reports (read-only aggregations)
 """
 
 from django.contrib.auth import get_user_model
 from django.db import connection, transaction
-from django.db.models import Q
+from django.db.models import F, Q
 from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse
@@ -44,6 +45,7 @@ from core.models import (
     WorkspaceMemberRoleChoices,
 )
 from core.permissions import (
+    IsAdmin,
     IsOwnerOrAdmin,
     ToolPermission,
     ToolRequestPermission,
@@ -781,3 +783,187 @@ class ToolReturnViewSet(viewsets.ModelViewSet):
                 details=details,
                 ip_address=get_client_ip(self.request)
             )
+
+
+# ------------------------------------------------------------------------------
+# 5. PANEL DE ADMINISTRACIÓN Y REPORTES (SOLO LECTURA)
+# ------------------------------------------------------------------------------
+class AdminDashboardView(APIView):
+    """Aggregated operational view reserved for ADMIN users."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    @extend_schema(responses=OpenApiResponse(description="Operational KPIs and work queues for ADMIN"))
+    def get(self, request):
+        now = timezone.now()
+
+        low_stock_qs = Tool.objects.filter(
+            is_active=True,
+            minimum_stock__gt=0,
+            stock__lte=F('minimum_stock'),
+        ).order_by('stock', 'name')
+
+        pending_requests_qs = ToolRequest.objects.select_related(
+            'tool', 'task', 'requested_by'
+        ).filter(status=ToolRequestStatusChoices.PENDIENTE).order_by('created_at')
+
+        pending_returns_qs = ToolReturn.objects.select_related(
+            'tool_request', 'tool_request__tool'
+        ).filter(status=ToolReturnStatusChoices.PENDIENTE_REVISION).order_by('created_at')
+
+        overdue_tasks_qs = Task.objects.select_related('project').filter(
+            due_date__lt=now
+        ).exclude(status='COMPLETED').order_by('due_date')
+
+        data = {
+            'generated_at': now,
+            'totals': {
+                'tools': Tool.objects.count(),
+                'tools_active': Tool.objects.filter(is_active=True).count(),
+                'tools_low_stock': low_stock_qs.count(),
+                'tools_out_of_stock': Tool.objects.filter(is_active=True, stock=0).count(),
+                'pending_requests': pending_requests_qs.count(),
+                'delivered_requests': ToolRequest.objects.filter(
+                    status=ToolRequestStatusChoices.ENTREGADA
+                ).count(),
+                'pending_returns': pending_returns_qs.count(),
+                'tasks_pending': Task.objects.exclude(status='COMPLETED').count(),
+                'tasks_overdue': overdue_tasks_qs.count(),
+                'active_projects': Project.objects.filter(is_active=True).count(),
+                'users': User.objects.count(),
+                'admins': User.objects.filter(role='ADMIN').count(),
+                'members': User.objects.filter(role='MEMBER').count(),
+            },
+            'low_stock_tools': [
+                {
+                    'id': str(tool.id),
+                    'name': tool.name,
+                    'category': tool.category,
+                    'location': tool.location,
+                    'stock': tool.stock,
+                    'minimum_stock': tool.minimum_stock,
+                }
+                for tool in low_stock_qs[:8]
+            ],
+            'pending_requests': [
+                {
+                    'id': str(item.id),
+                    'tool_name': item.tool.name,
+                    'quantity': item.quantity,
+                    'priority': item.priority,
+                    'task_title': item.task.title,
+                    'requested_by_email': item.requested_by.email,
+                    'created_at': item.created_at,
+                }
+                for item in pending_requests_qs[:8]
+            ],
+            'pending_returns': [
+                {
+                    'id': str(item.id),
+                    'return_number_display': (
+                        f"#{item.return_number:03d}" if item.return_number else ''
+                    ),
+                    'tool_name': item.tool_request.tool.name,
+                    'quantity_returned': item.quantity_returned,
+                    'condition': item.condition,
+                    'created_at': item.created_at,
+                }
+                for item in pending_returns_qs[:8]
+            ],
+            'overdue_tasks': [
+                {
+                    'id': str(task.id),
+                    'title': task.title,
+                    'project_name': task.project.name if task.project else '',
+                    'due_date': task.due_date,
+                    'status': task.status,
+                }
+                for task in overdue_tasks_qs[:8]
+            ],
+        }
+        return Response(data)
+
+
+class ReportBaseView(APIView):
+    """Common ADMIN-only gate for CSV-ready (non-paginated) report rows."""
+
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+
+class InventoryReportView(ReportBaseView):
+    """Full tool catalog for spreadsheet export."""
+
+    @extend_schema(responses=OpenApiResponse(description="CSV-ready tool inventory rows"))
+    def get(self, request):
+        rows = []
+        for tool in Tool.objects.all().order_by('name'):
+            rows.append({
+                'id': str(tool.id),
+                'name': tool.name,
+                'description': tool.description,
+                'category': tool.category,
+                'location': tool.location,
+                'stock': tool.stock,
+                'minimum_stock': tool.minimum_stock,
+                'is_active': tool.is_active,
+                'low_stock': bool(
+                    tool.is_active and tool.minimum_stock > 0 and tool.stock <= tool.minimum_stock
+                ),
+                'requests_count': tool.requests.count(),
+                'updated_at': tool.updated_at,
+            })
+        return Response(rows)
+
+
+class ToolRequestReportView(ReportBaseView):
+    """Tool requests for export; supports the existing status filter."""
+
+    @extend_schema(responses=OpenApiResponse(description="CSV-ready tool request rows"))
+    def get(self, request):
+        queryset = ToolRequest.objects.select_related(
+            'tool', 'task', 'task__project', 'requested_by'
+        ).all()
+        status_param = request.query_params.get('status')
+        if status_param:
+            queryset = queryset.filter(status__iexact=status_param.strip())
+
+        rows = []
+        for item in queryset.order_by('-created_at'):
+            rows.append({
+                'id': str(item.id),
+                'tool_name': item.tool.name,
+                'quantity': item.quantity,
+                'task_title': item.task.title,
+                'project_name': item.task.project.name if item.task.project else '',
+                'priority': item.priority,
+                'status': item.status,
+                'notes': item.notes,
+                'requested_by_email': item.requested_by.email,
+                'created_at': item.created_at,
+            })
+        return Response(rows)
+
+
+class ToolReturnReportView(ReportBaseView):
+    """Numbered warehouse receipts for export."""
+
+    @extend_schema(responses=OpenApiResponse(description="CSV-ready tool return rows"))
+    def get(self, request):
+        queryset = ToolReturn.objects.select_related(
+            'tool_request', 'tool_request__tool', 'returned_by'
+        ).all()
+        rows = []
+        for item in queryset.order_by('-return_number'):
+            rows.append({
+                'return_number_display': (
+                    f"#{item.return_number:03d}" if item.return_number else ''
+                ),
+                'tool_name': item.tool_request.tool.name,
+                'quantity_returned': item.quantity_returned,
+                'condition': item.condition,
+                'status': item.status,
+                'observations': item.observations,
+                'returned_by_email': item.returned_by.email,
+                'created_at': item.created_at,
+            })
+        return Response(rows)

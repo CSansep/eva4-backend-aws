@@ -432,8 +432,10 @@ class ToolSerializer(serializers.ModelSerializer):
     Catalog serializer. Writable stock is intentionally ADMIN-only at the view
     permission layer; MEMBER receives the same payload read-only.
     ``requests_count`` lets the UI hide DELETE when the tool has history.
+    ``low_stock`` is derived from ``minimum_stock`` and never writable.
     """
     requests_count = serializers.SerializerMethodField()
+    low_stock = serializers.SerializerMethodField()
 
     class Meta:
         model = Tool
@@ -441,15 +443,34 @@ class ToolSerializer(serializers.ModelSerializer):
             'id',
             'name',
             'description',
+            'category',
+            'location',
+            'minimum_stock',
+            'is_active',
+            'low_stock',
             'stock',
             'requests_count',
             'created_at',
             'updated_at',
         ]
-        read_only_fields = ['id', 'requests_count', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'low_stock', 'requests_count', 'created_at', 'updated_at']
 
     def get_requests_count(self, obj) -> int:
         return obj.requests.count()
+
+    def get_low_stock(self, obj) -> bool:
+        """Flag active tools at or below their configured minimum stock."""
+        return bool(
+            obj.is_active
+            and obj.minimum_stock > 0
+            and obj.stock <= obj.minimum_stock
+        )
+
+    def validate_category(self, value):
+        return (value or '').strip() or 'General'
+
+    def validate_location(self, value):
+        return (value or '').strip()
 
     def validate_name(self, value):
         clean_name = value.strip()

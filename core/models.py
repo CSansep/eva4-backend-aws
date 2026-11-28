@@ -435,6 +435,23 @@ class Tool(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=120, unique=True, verbose_name="Tool Name")
     description = models.TextField(verbose_name="Technical Capacity")
+    category = models.CharField(
+        max_length=60,
+        default='General',
+        verbose_name="Category"
+    )
+    location = models.CharField(
+        max_length=120,
+        blank=True,
+        default='',
+        verbose_name="Storage Location"
+    )
+    minimum_stock = models.PositiveIntegerField(
+        default=0,
+        validators=[MinValueValidator(0)],
+        verbose_name="Minimum Stock"
+    )
+    is_active = models.BooleanField(default=True, verbose_name="Is Active")
     stock = models.PositiveIntegerField(
         default=0,
         validators=[MinValueValidator(0)],

@@ -11,12 +11,16 @@ from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from core.views import (
+    AdminDashboardView,
     AuditLogViewSet,
     HealthCheckView,
+    InventoryReportView,
     ProjectViewSet,
     RegisterView,
     SubtaskViewSet,
     TagViewSet,
+    ToolRequestReportView,
+    ToolReturnReportView,
     TaskCommentViewSet,
     TaskViewSet,
     ToolRequestViewSet,
@@ -59,8 +63,14 @@ urlpatterns = [
     path('auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('auth/me/', UserProfileView.as_view(), name='auth-me'),
 
-    # Infrastructure Health Check (AWS API Gateway / ALB)
+    # Infrastructure Health Check
     path('health/', HealthCheckView.as_view(), name='health-check'),
+
+    # ADMIN dashboard and CSV-ready reports (read-only)
+    path('admin/dashboard/', AdminDashboardView.as_view(), name='admin-dashboard'),
+    path('reports/inventory/', InventoryReportView.as_view(), name='report-inventory'),
+    path('reports/tool-requests/', ToolRequestReportView.as_view(), name='report-tool-requests'),
+    path('reports/tool-returns/', ToolReturnReportView.as_view(), name='report-tool-returns'),
 
     # OpenAPI 3.0 Schema and Interactive Swagger UI
     path('schema/', SpectacularAPIView.as_view(), name='schema'),

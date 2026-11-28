@@ -59,7 +59,7 @@ El app `core` contiene 12 entidades:
 7. `TaskComment`.
 8. `Subtask`.
 9. `AuditLog`.
-10. `Tool` (catálogo y stock).
+10. `Tool` (catálogo con `category`, `location`, `minimum_stock`, `is_active` y `stock`).
 11. `ToolRequest` (pedido de herramientas).
 12. `ToolReturn` (devolución numerada `#001`, `#002`, ...).
 
@@ -71,7 +71,9 @@ El stock se descuenta al aprobar/entregar un pedido y se repone al recepcionar u
 
 ### `ADMIN`
 - Ver todas las obras, tareas, pedidos y devoluciones.
-- Crear, editar y eliminar herramientas del catálogo.
+- Crear, editar y eliminar herramientas del catálogo (nombre, categoría, ubicación, capacidad, stock, stock mínimo y activa/inactiva).
+- Ver el panel de administración con KPIs, alertas de stock bajo y colas de pedidos/devoluciones.
+- Descargar reportes CSV de inventario, pedidos y devoluciones.
 - Cambiar estados de pedidos: `PENDIENTE` → `APROBADA`/`ENTREGADA`/`RECHAZADA`; `APROBADA` → `ENTREGADA`/`RECHAZADA`.
 - Al rechazar, debe indicar un motivo breve que se guarda en `notes`.
 - Recepcionar devoluciones y ver la bitácora de auditoría completa.
@@ -82,7 +84,7 @@ El stock se descuenta al aprobar/entregar un pedido y se repone al recepcionar u
 - Cancelar solo sus propios pedidos en `PENDIENTE`.
 - Registrar devoluciones de pedidos entregados.
 - Ver pedidos propios o asignados y sus devoluciones.
-- No puede editar herramientas, cambiar estados, recepcionar devoluciones ni ver la pestaña de auditoría.
+- No puede editar herramientas, cambiar estados, recepcionar devoluciones ni ver el panel de administración, los reportes CSV ni la pestaña de auditoría.
 
 > `MANAGER` existe como valor legacy en el modelo, pero no otorga privilegios administrativos en el comportamiento actual; operativamente se trata como `MEMBER`.
 
@@ -110,12 +112,16 @@ Base: `https://buildcorp2.duckdns.org/api/v1/` (en local: `http://localhost:8000
 | `GET/PUT/PATCH/DELETE` | `/tasks/{id}/` | Owner/ADMIN o avance de campo | Edición/adjo de evidencia S3. |
 | `GET/POST` | `/comments/` | Autenticado | Comentarios/notas de terreno (`?task=`). |
 | `GET/POST` | `/subtasks/` | Autenticado | Checklist (`?task=`). |
-| `GET/POST` | `/tools/` | GET: autenticado / POST: ADMIN | Catálogo; ADMIN edita `name`, `description` y `stock` con `PATCH /tools/{id}/`. |
+| `GET/POST` | `/tools/` | GET: autenticado / POST: ADMIN | Catálogo; ADMIN edita `name`, `description`, `category`, `location`, `minimum_stock`, `is_active` y `stock` con `PATCH /tools/{id}/`. |
 | `GET/POST` | `/tool-requests/` | Autenticado | Pedidos; ADMIN filtra `?status=`, `?tool=`. |
 | `GET/PATCH/DELETE` | `/tool-requests/{id}/` | Según rol | Cambio de estado y motivo de rechazo en `notes`. |
 | `GET/POST` | `/tool-returns/` | Autenticado | Devoluciones numeradas. |
 | `GET/PATCH/DELETE` | `/tool-returns/{id}/` | ADMIN para verificar/borrar | `PATCH { "status": "RECEPCIONADA" }` repone stock. |
 | `GET` | `/audit-logs/` | Autenticado | ADMIN ve todo; MEMBER ve solo sus eventos. |
+| `GET` | `/admin/dashboard/` | ADMIN | KPIs, stock bajo, pedidos/devoluciones pendientes y tareas vencidas. |
+| `GET` | `/reports/inventory/` | ADMIN | Catálogo completo para exportar a CSV. |
+| `GET` | `/reports/tool-requests/` | ADMIN | Pedidos para CSV; admite `?status=`. |
+| `GET` | `/reports/tool-returns/` | ADMIN | Devoluciones numeradas para CSV. |
 
 La paginación por defecto es `PAGE_SIZE: 20`.
 
@@ -208,7 +214,7 @@ sudo systemctl reload nginx
 curl -I https://buildcorp2.duckdns.org/
 ```
 
-`index.html` referencia `css/styles.css?v=20261128` y `js/app.js?v=20261128` para forzar la renovación de caché. Si se vuelve a modificar el frontend, incrementar la versión.
+`index.html` referencia `css/styles.css?v=20261128` y `js/app.js?v=20261129` para forzar la renovación de caché. Si se vuelve a modificar el frontend, incrementar la versión.
 
 ### Verificación funcional mínima
 
@@ -217,9 +223,10 @@ curl -i https://buildcorp2.duckdns.org/api/v1/health/
 curl -i https://buildcorp2.duckdns.org/api/v1/tools/          # 401 sin token
 curl -i https://buildcorp2.duckdns.org/api/v1/tool-requests/  # 401 sin token
 curl -i https://buildcorp2.duckdns.org/api/v1/tool-returns/   # 401 sin token
+curl -i https://buildcorp2.duckdns.org/api/v1/admin/dashboard/ # 401 sin token
 ```
 
-Con tokens reales: MEMBER no debe poder hacer `POST /tools/` ni ver `/audit-logs/` en la UI; ADMIN debe completar el ciclo aprobar → entregar → devolver → recepcionar.
+Con tokens reales: MEMBER no debe poder hacer `POST /tools/`, acceder a `/admin/dashboard/` ni a `/reports/*`, ni ver el panel de administración o `/audit-logs/` en la UI; ADMIN debe completar el ciclo aprobar → entregar → devolver → recepcionar.
 
 ---
 
@@ -244,8 +251,9 @@ sudo cp -a /var/www/buildcorp-frontend /home/ubuntu/frontend.pre-inventario
 cd /home/ubuntu/apps/backend
 sudo systemctl stop gunicorn
 
-# Con el código actual (que conoce la migración 0002):
-./venv/bin/python manage.py migrate core 0001
+# Con el código actual (que conoce las migraciones 0002 y 0003):
+./venv/bin/python manage.py migrate core 0002   # quita los campos de catálogo de 0003
+./venv/bin/python manage.py migrate core 0001   # quita el módulo de herramientas
 
 # Restaurar código y, si aplica, datos:
 cp -a /home/ubuntu/core.pre-inventario/. core/
